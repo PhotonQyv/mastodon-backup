@@ -1,8 +1,8 @@
-# Mastodon Backup
+# Mastodon Archive
 
-This tool allows you to make a backup of your statuses, your
+This tool allows you to make a archive of your statuses, your
 favourites and the media in both your statuses and your favourites.
-From this backup, you can generate a simple text file, or a HTML file
+From this archive, you can generate a simple text file, or a HTML file
 with or without media. Take a look at an
 [example](https://alexschroeder.ch/mastodon.weaponvsac.space.user.kensanata.html)
 if you're curious.
@@ -10,10 +10,11 @@ if you're curious.
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
 **Table of Contents**
 
-- [Making a backup](#making-a-backup)
+- [Installation](#installation)
+- [Making an archive](#making-an-archive)
 - [Downloading media files](#downloading-media-files)
 - [Generating a text file](#generating-a-text-file)
-- [Searching your backup](#searching-your-backup)
+- [Searching your archive](#searching-your-archive)
 - [Generating a HTML file](#generating-a-html-file)
 - [Documentation](#documentation)
 - [Processing using jq](#processing-using-jq)
@@ -22,20 +23,22 @@ if you're curious.
 
 <!-- markdown-toc end -->
 
-# Making a backup
+# Installation
 
-This tool uses the [Mastodon.py](https://github.com/halcy/Mastodon.py)
-library which you must install:
+The following command will install `mastodon-archive` all its
+dependencies:
 
 ```bash
 # Python 3
-pip3 install Mastodon.py
+$ pip3 install mastodon-archive
 ```
+
+# Making an archive
 
 When using the app for the first time, you will have to authorize it:
 
 ```
-$ ./mastodon-backup.py kensanata@dice.camp
+$ mastodon-archive archive kensanata@dice.camp
 Registering app
 Log in
 Visit the following URL and authorize the app:
@@ -45,6 +48,18 @@ Then paste the access token here:
 Get user info
 Get statuses (this may take a while)
 Save 41 statuses
+```
+
+Note that the library we are using says: "Mastodons API rate limits
+per IP. By default, the limit is 300 requests per 5 minute time slot.
+This can differ from instance to instance and is subject to change."
+Thus, if every request gets 20 toots, then we can get at most 6000
+toots per five minutes.
+
+If this is taking too long, consider skipping your favourites:
+
+```
+$ mastodon_backup archive --no-favourites kensanata@dice.camp
 ```
 
 You will end up with three new files:
@@ -65,24 +80,14 @@ you need to remove this file.
 # Downloading media files
 
 By default, media you uploaded and media of statuses you added your
-favourites are not part of your backup. `mastodon-backup-media.py`
-will look through your backup and download all the missing media
-files.
+favourites are not part of your archive. You can download it using a
+separate command, however.
 
-It requires [progress](https://pypi.python.org/pypi/progress)
-and [pySmartDL](https://pypi.python.org/pypi/pySmartDL):
-
-```bash
-# Python 3
-pip3 install pySmartDL
-pip3 install progress
-```
-
-Assuming you already made a backup of your toots:
+Assuming you already made a archive of your toots:
 
 ```
-$ ./mastodon-backup-media.py kensanata@dice.camp
-44 urls in your backup (half of them are previews)
+$ mastodon-archive media kensanata@dice.camp
+44 urls in your archive (half of them are previews)
 34 files already exist
 Downloading |################################| 10/10
 ```
@@ -104,18 +109,10 @@ and we'll discuss it.
 
 # Generating a text file
 
-The tool `mastodon-backup-to-text.py` requires
-[html2text](https://pypi.python.org/pypi/html2text):
-
-```bash
-# Python 3
-pip3 install html2text
-```
-
-Assuming you already made a backup of your toots:
+Assuming you already made a archive of your toots:
 
 ```
-$ ./mastodon-backup-to-text.py kensanata@dice.camp
+$ mastodon-archive text kensanata@dice.camp
 [lots of other toots]
 Alex Schroeder 🐉 @kensanata 2017-11-14T22:21:50.599000+00:00
 [#introduction](https://dice.camp/tags/introduction) I run
@@ -130,7 +127,7 @@ Generating a text file just means redirection the output to a text
 file:
 
 ```
-$ ./mastodon-backup-to-text.py kensanata@dice.camp > statuses.txt
+$ mastodon-archive text kensanata@dice.camp > statuses.txt
 ```
 
 If you're working with text, you might expect the first toot to be at
@@ -138,10 +135,10 @@ the top and the last toot to be at the bottom. In this case, you need
 to reverse the list:
 
 ```
-$ ./mastodon-backup-to-text.py --reverse kensanata@dice.camp | head
+$ mastodon-archive text --reverse kensanata@dice.camp | head
 ```
 
-# Searching your backup
+# Searching your archive
 
 You can also filter using regular expressions. These will be checked
 against the status *content* (obviously), *display name* and
@@ -152,14 +149,14 @@ and problably starts with a `<p>`, which is then removed in the
 output.
 
 ```
-$ ./mastodon-backup-to-text.py kensanata@dice.camp house
+$ mastodon-archive text kensanata@dice.camp house
 ```
 
 You can provide multiple regular expressions and they will all be
 checked:
 
 ```
-$ ./mastodon-backup-to-text.py kensanata@dice.camp house rule
+$ mastodon-archive text kensanata@dice.camp house rule
 ```
 
 Remember basic
@@ -169,30 +166,31 @@ alternatives, just to pick some useful ones. Use single quotes to
 protect your backslashes and questionmarks.
 
 ```
-$ ./mastodon-backup-to-text.py kensanata@dice.camp house 'rule\b'
+$ mastodon-archive text kensanata@dice.camp house 'rule\b'
 ```
 
 You can also search your favourites:
 
 ```
-$ ./mastodon-backup-to-text.py favourites kensanata@dice.camp '(?i)blackbird'
+$ mastodon-archive text --collection favourites kensanata@dice.camp '(?i)blackbird'
 ```
 
 Dates are in ISO format (e.g. `2017-11-19T14:00`). I usually only care
 about year and month, though:
 
 ```
-$ ./mastodon-backup-to-text.py favourites kensanata@dice.camp bird '2017-(07|08|09|10|11)'
+$ mastodon-archive text --collection favourites kensanata@dice.camp bird '2017-(07|08|09|10|11)'
 ```
 
 # Generating a HTML file
 
-You probably want to redirect the `mastodon-backup-to-text.py` output
-to a file. Assuming you already made a backup of your toots:
+Assuming you already made a archive of your toots:
 
 ```
-$ ./mastodon-backup-to-html.py kensanata@dice.camp > statuses.html
+$ mastodon-archive html kensanata@dice.camp > statuses.html
 ```
+
+The above redirects the output of this command to a static HTML file.
 
 If you have downloaded your media attachments, these will be used in
 the HTML file. Thus, if you want to upload the HTML file, you now need
@@ -202,7 +200,7 @@ broken.
 You can also generate a file for your favourites:
 
 ```
-$ ./mastodon-backup-to-html.py favourites kensanata@dice.camp > favourites.html
+$ mastodon-archive html --collection favourites kensanata@dice.camp > favourites.html
 ```
 
 Note that both the HTML file with your statuses and the HTML file with
@@ -210,10 +208,11 @@ your favourites will refer to the media files in your media directory.
 
 # Documentation
 
-The data we have in our backup file is a hash with two keys:
+The data we have in our archive file is a hash with three keys:
 
 1. `account` is a [User dict](https://mastodonpy.readthedocs.io/en/latest/#user-dicts)
 2. `statuses` is a list of [Toot dicts](https://mastodonpy.readthedocs.io/en/latest/#toot-dicts)
+3. `favourites` is a list of [Toot dicts](https://mastodonpy.readthedocs.io/en/latest/#toot-dicts)
 
 If you want to understand the details and the nested nature of these
 data structures, you need to look at the Mastodon API documentation.
@@ -225,7 +224,7 @@ entity looks like.
 
 [jq](https://stedolan.github.io/jq/) is a lightweight and flexible
 command-line JSON processor. That means you can use it to work with
-your backup.
+your archive.
 
 The following command will take all your favourites and create a map
 with the keys `time` and `message` for each one of them, and put it
@@ -252,7 +251,7 @@ Now that you have token files, you can explore the Mastodon API using
 `curl`. Your *access token* is the long string in the file
 `*.user.*.secret`. Here is how to use it.
 
-Getting a single status:
+Get a single status:
 
 ```
 curl --silent --show-error \
@@ -260,10 +259,10 @@ curl --silent --show-error \
      https://dice.camp/api/v1/statuses/99005111284322450
 ```
 
-Extract the account id from your backup using `jq` and use `echo` to
+Extract the account id from your archive using `jq` and use `echo` to
 [strip the surrounding double quotes](https://stackoverflow.com/a/24358387/534893).
 Then use the id to get some statuses from the account and use `jq` to
-print the status ids.
+print the status ids:
 
 ```
 ID=$(eval echo $(jq .account.id < dice.camp.user.kensanata.json))
@@ -275,7 +274,7 @@ curl --silent --show-error \
 
 # Alternatives
 
-There are two kinds of alternatives to `mastodon-backup`:
+There are two kinds of alternatives:
 
 1. Solutions that extract your public toots from your profile, e.g.
    [https://octodon.social/@kensanata](https://octodon.social/@kensanata).
