@@ -1,6 +1,6 @@
 # Mastodon Archive
 
-This tool allows you to make a archive of your statuses, your
+This tool allows you to make an archive of your statuses, your
 favourites and the media in both your statuses and your favourites.
 From this archive, you can generate a simple text file, or a HTML file
 with or without media. Take a look at an
@@ -16,7 +16,10 @@ if you're curious.
 - [Generating a text file](#generating-a-text-file)
 - [Searching your archive](#searching-your-archive)
 - [Generating a HTML file](#generating-a-html-file)
+- [Expiring your toots and favourites](#expiring-your-toots-and-favourites)
+- [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
+- [Development](#development)
 - [Processing using jq](#processing-using-jq)
 - [Exploring the API](#exploring-the-api)
 - [Alternatives](#alternatives)
@@ -25,7 +28,7 @@ if you're curious.
 
 # Installation
 
-The following command will install `mastodon-archive` all its
+The following command will install `mastodon-archive` and all its
 dependencies:
 
 ```bash
@@ -59,7 +62,7 @@ toots per five minutes.
 If this is taking too long, consider skipping your favourites:
 
 ```
-$ mastodon_backup archive --no-favourites kensanata@dice.camp
+$ mastodon-archive archive --no-favourites kensanata@dice.camp
 ```
 
 You will end up with three new files:
@@ -83,7 +86,7 @@ By default, media you uploaded and media of statuses you added your
 favourites are not part of your archive. You can download it using a
 separate command, however.
 
-Assuming you already made a archive of your toots:
+Assuming you already made an archive of your toots:
 
 ```
 $ mastodon-archive media kensanata@dice.camp
@@ -109,7 +112,7 @@ and we'll discuss it.
 
 # Generating a text file
 
-Assuming you already made a archive of your toots:
+Assuming you already made an archive of your toots:
 
 ```
 $ mastodon-archive text kensanata@dice.camp
@@ -184,27 +187,165 @@ $ mastodon-archive text --collection favourites kensanata@dice.camp bird '2017-(
 
 # Generating a HTML file
 
-Assuming you already made a archive of your toots:
+Assuming you already made an archive of your toots:
 
 ```
-$ mastodon-archive html kensanata@dice.camp > statuses.html
+$ mastodon-archive html kensanata@dice.camp
 ```
 
-The above redirects the output of this command to a static HTML file.
+This will create numbered HTML files starting with
+`dice.camp.user.kensanata.statuses.0.html`, each page with 2000 toots.
+
+You can change the number of toots per page using an option:
+
+```
+$ mastodon-archive html --toots-per-page 100 kensanata@dice.camp
+```
 
 If you have downloaded your media attachments, these will be used in
-the HTML file. Thus, if you want to upload the HTML file, you now need
-to upload the media directory as well or all the media links will be
-broken.
+the HTML files. Thus, if you want to upload the HTML files, you now
+need to upload the media directory as well or all the media links will
+be broken.
 
 You can also generate a file for your favourites:
 
 ```
-$ mastodon-archive html --collection favourites kensanata@dice.camp > favourites.html
+$ mastodon-archive html --collection favourites kensanata@dice.camp
 ```
+
+This will create numbered HTML files starting with
+`dice.camp.user.kensanata.favourites.0.html`, each page with 2000
+toots.
 
 Note that both the HTML file with your statuses and the HTML file with
 your favourites will refer to the media files in your media directory.
+
+# Reporting
+
+Some numbers, including your ten most used hashtags:
+
+```
+$ mastodon-archive report kensanata@dice.camp
+Statuses:               209
+Boosts:                  14
+Media:                    5
+Favourites:             223
+
+#caster:                  5
+#20questions:             5
+#introduction:            2
+#osr:                     2
+#currentprojects:         2
+#caller:                  1
+#rpgmusic:                1
+#razorcoast:              1
+#rpghaiku:                1
+#haiku:                   1
+```
+
+# Expiring your toots and favourites
+
+**Warning**: This is a destructive operation. You will delete your
+toots on your instance, or unfavour your favourites on your instance.
+Where as it might be possible to favour all your favourites again,
+there is no way to repost all those toots. You will have a copy in
+your archive, but there is no way to restore these to your instance.
+
+You can expire your toots using the `expire` command and providing the
+`--older-than` option. This option specifies the number of weeks to
+keep on the server. Anything older than that is deleted or unfavoured.
+If you use `--older-than 0`, then *all* your toots will be deleted or
+*all* your favourites will be unfavoured.
+
+```
+~/src/mastodon-backup $ mastodon-archive expire --older-than 0 kensanata@social.nasqueron.org
+This is a dry run and nothing will be expired.
+Instead, we'll just list what would have happened.
+Use --confirmed to actually do it.
+Delete: 2017-11-26 "<p>Testing äöü</p>"
+```
+
+Actually, the default operation just does a dry run. You need to use
+the `--confirmed` option to proceed.
+
+And one more thing: since this requires the permission to *write* to
+your account, you will have to reauthorize the app.
+
+```
+$ mastodon-archive expire --collection favourites --older-than 0 \
+  --confirmed kensanata@social.nasqueron.org
+Log in
+Visit the following URL and authorize the app:
+[long URL shown here]
+Then paste the access token here:
+[long token pasted here]
+Expiring |################################| 1/1
+```
+
+These toots will remain in your archive. And now you have a problem if
+you deleted *all* the toots from your instance using `--older-than 0`
+because when you try to archive your toots a while later, the app will
+attempt to fetch toots up to the last one in your archive, but you
+deleted it, so it can't be found.
+
+```
+$ mastodon-archive archive kensanata@social.nasqueron.org
+Loading existing archive
+Get user info
+Get new statuses
+Error: I did not find the last toot we have in our archive.
+Perhaps it was deleted?
+
+If you have expired all the toots on your server, then this is
+expected. In this case you need to use the --append-all option to make
+sure we download all the toots on the server and append them to the
+archive.
+
+If you have never expired any toots and you just manually deleted or
+unfavoured the last one in the archive, you could first use the delete
+command to delete the latest toot our favourite and then try the
+archive command again.
+
+If you're not sure, you probably want to export the toots from your
+archive, rename the file and restart from scratch. The archive you
+need to delete is this file:
+social.nasqueron.org.user.kensanata.json
+```
+
+So that's what you need to use:
+
+```
+$ mastodon-archive archive --append-all kensanata@social.nasqueron.org
+Loading existing archive
+Get user info
+Get statuses (this may take a while)
+Get favourites (this may take a while)
+Saving 1 statuses and 1 favourites
+```
+
+# Troubleshooting
+
+If you are archiving a ton of toots and you run into a General API
+problem, use the `--pace` option. This is what the problem looks like:
+
+```
+$ mastodon-archive archive kensanata@dice.camp
+...
+Get statuses (this may take a while)
+Traceback (most recent call last):
+...
+mastodon.Mastodon.MastodonAPIError: General API problem.
+```
+
+Solution:
+
+```
+$ mastodon-archive archive --pace kensanata@dice.camp
+```
+
+The problem seems to be related to how Mastodon [rate
+limits](https://mastodonpy.readthedocs.io/en/latest/#a-note-about-rate-limits)
+requests.
 
 # Documentation
 
@@ -219,6 +360,21 @@ data structures, you need to look at the Mastodon API documentation.
 One way to get started is to look at what a
 [Status](https://github.com/tootsuite/documentation/blob/master/Using-the-API/API.md#status)
 entity looks like.
+
+# Development
+
+If you checked out the repository and you want to run the code from
+the working directory on a single user system, use `pip3 install
+--upgrade --editable .` in your working directory to make it
+"editable" (i.e. the system installation is linked to your working
+directory, now).
+
+If you don't want to do this for the entire system, you need your own
+virtual environemt: `pip3 install virtualenvwrapper`, `mkvirtualenv ma
+--python python3` (this installs and activates a virtual environment
+called `ma`), `pip install -e .` (`-e` installs an "editable" copy)
+and you're set. Use `workon ma` to work in that virtual environment in
+the future.
 
 # Processing using jq
 

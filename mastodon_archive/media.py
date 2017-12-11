@@ -17,11 +17,9 @@
 import sys
 import os
 import json
-from pySmartDL import SmartDL
+import urllib.request
 from progress.bar import Bar
 from urllib.parse import urlparse
-from time import sleep
-from urllib.error import HTTPError
 
 def media(args):
     """
@@ -56,19 +54,19 @@ def media(args):
 
     errors = 0
 
-    downloaders = []
     for url in urls:
         bar.next()
         path = urlparse(url).path
-        if not os.path.isfile(media_dir + path):
-            download = SmartDL(url,
-                               dest = media_dir + path,
-                               progress_bar = None)
+        file_name = media_dir + path
+        if not os.path.isfile(file_name):
+            dir_name =  os.path.dirname(file_name)
+            os.makedirs(dir_name, exist_ok = True)
             try:
-                download.start(blocking = False)
-                downloaders.append(download)
-            except HTTPError as e:
-                # print("\n" + e.msg + ": " + url, file=sys.stderr)
+                with urllib.request.urlopen(url) as response, open(file_name, 'wb') as fp:
+                    data = response.read()
+                    fp.write(data)
+            except OSError as e:
+                print("\n" + e.msg + ": " + url, file=sys.stderr)
                 errors += 1
 
     bar.finish()
