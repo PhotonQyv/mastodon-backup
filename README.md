@@ -16,6 +16,7 @@ if you're curious.
 - [Generating a text file](#generating-a-text-file)
 - [Searching your archive](#searching-your-archive)
 - [Generating a HTML file](#generating-a-html-file)
+- [Reporting](#reporting)
 - [Expiring your toots and favourites](#expiring-your-toots-and-favourites)
 - [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
@@ -231,16 +232,11 @@ Boosts:                  14
 Media:                    5
 Favourites:             223
 
-#caster:                  5
-#20questions:             5
-#introduction:            2
-#osr:                     2
-#currentprojects:         2
-#caller:                  1
-#rpgmusic:                1
-#razorcoast:              1
-#rpghaiku:                1
-#haiku:                   1
+#caster(5) #20questions(5) #introduction(2) #osr(2)
+#currentprojects(2) #caller(1) #rpgmusic(1) #razorcoast(1)
+#rpghaiku(1) #haiku(1) #character(1) #amaroq(1) #tootdon(1) #howto(1)
+#spells(1) #history(1) #rpg(1) #myfirstcharacter(1) #1strpgs(1)
+#favouritepen(1) #pbta(1)
 ```
 
 # Expiring your toots and favourites
@@ -325,7 +321,7 @@ Saving 1 statuses and 1 favourites
 
 # Troubleshooting
 
-If you are archiving a ton of toots and you run into a General API
+🔥 If you are archiving a ton of toots and you run into a General API
 problem, use the `--pace` option. This is what the problem looks like:
 
 ```
@@ -346,6 +342,21 @@ $ mastodon-archive archive --pace kensanata@dice.camp
 The problem seems to be related to how Mastodon [rate
 limits](https://mastodonpy.readthedocs.io/en/latest/#a-note-about-rate-limits)
 requests.
+
+🔥 If you are experimenting with a expiry, you'll need to give the app
+write permissions. If you then delete the user secret file, hoping to
+start with a clean slate when archiving, you'll be asked to authorize
+the app again, but somehow Mastodon remembers that you have already
+granted the app read and write permissions, and you will get this
+error:
+
+`mastodon.Mastodon.MastodonAPIError: Granted scopes "read write" differ from requested scopes "read".`
+
+In order to get rid of this, you need to visit the website, got to
+Settings → Authorized apps and revoke your authorization for
+mastodon-archive. Now you can try the authorization URL again and you
+will only get read permissions instead of both read and write
+permissions.
 
 # Documentation
 
