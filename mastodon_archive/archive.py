@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (C) 2017  Alex Schroeder <alex@gnu.org>
-# Copyright (C) 2017  Steve Ivy <steveivy@gmail.com>
+# Copyright (C) 2017-2018  Alex Schroeder <alex@gnu.org>
+# Copyright (C) 2017       Steve Ivy <steveivy@gmail.com>
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -18,23 +18,35 @@ import sys
 import os.path
 from . import core
 
+def progress_bar(chars="oOUX."):
+    """
+    Return a progress bar updater which you can then call.
+    """
+    n = 0
+    def progress():
+        nonlocal n
+        if n != 0:
+            sys.stdout.write("\b")
+        sys.stdout.write(chars[n])
+        sys.stdout.flush()
+        n = (n + 1) % len(chars)
+
+    return progress
+
 def archive(args):
     """
     Archive your toots and favourites from your Mastodon account
     """
 
-    append = args.append
     skip_favourites = args.skip_favourites
+    with_mentions = args.with_mentions
+    with_followers = args.with_followers
+    with_following = args.with_following
 
-    (username, domain) = args.user.split("@")
+    (username, domain) = core.parse(args.user)
 
     status_file = domain + '.user.' + username + '.json'
     data = core.load(status_file)
-
-    if append and data is None:
-        print("Error: --append-all cannot be used with an empty data file",
-              file=sys.stderr)
-        sys.exit(3)
 
     mastodon = core.login(args)
 
@@ -43,74 +55,68 @@ def archive(args):
     try:
         user = mastodon.account_verify_credentials()
     except Exception as e:
-        print(e, file=sys.stderr)
         if "access token was revoked" in str(e):
             core.deauthorize(args)
+             # retry and exit without an error
             archive(args)
             sys.exit(0)
-
-    def find_id(list, id):
-        """Return the list item whose id attribute matches."""
-        for item in list:
-            if str(item["id"]) == str(id):
-                return item
+        elif "Name or service not known" in str(e):
+            print("Error: the instance name is either misspelled or offline",
+              file=sys.stderr)
         else:
-            return None
+            print(e, file=sys.stderr)
+        # exit in either case
+        sys.exit(1)
 
-    def fetch_up_to(page, id):
-        statuses = []
-        # use a generator expression to find our last status
-        found = find_id(page, id)
-        # get the remaining pages
-        while len(page) > 0 and found is None:
-            statuses.extend(page)
-            sys.stdout.flush()
+    def complete(statuses, page, func = None):
+        """
+        Why aren't we using Mastodon.fetch_remaining(first_page)? It
+        requires some metadata for the next request to be known. This
+        is what the documentation says about
+        Mastodon.fetch_next(previous_page): "Pass in the previous page
+        in its entirety, or the pagination information dict returned
+        as a part of that pages last status (‘_pagination_next’)."
+        When we last updated our archive, however, there was no next
+        page: we got all the pages there were. So the archive will
+        have a ton of _pagination_prev keys but no _pagination_next
+        keys. That's why we fetch it all over again. Expiry helps,
+        obviously.
+        """
+        seen = { str(status["id"]): status for status in statuses }
+        count = 0
+        progress = progress_bar()
+        while len(page) > 0:
+            progress()
+            for item in page:
+                status = item
+                # possibly a notification containing a status
+                if "status" in item:
+                    status = item["status"]
+                if status and "id" in status:
+                    id = str(status["id"])
+                    if not id in seen:
+                        if func is None or func(item):
+                            seen["id"] = status
+                            statuses.append(status)
+                            count = count + 1
             page = mastodon.fetch_next(page)
             if page is None:
                 break
-            found = find_id(page, id)
-        if found is None:
-            print('''Error: I did not find the last toot we have in our archive.
-Perhaps it was deleted?
-
-If you have expired all the toots on your server, then this is
-expected. In this case you need to use the --append-all option to make
-sure we download all the toots on the server and append them to the
-archive.
-
-If you have never expired any toots and you just manually deleted or
-unfavoured the last one in the archive, you could first use the delete
-command to delete the latest toot our favourite and then try the
-archive command again.
-
-If you're not sure, you probably want to export the toots from your
-archive, rename the file and restart from scratch. The archive you
-need to delete is this file:
-%s''' % status_file,
-                  file=sys.stderr)
-            sys.exit(4)
-        else:
-            page = page[0:page.index(found)]
-            statuses.extend(page)
-        print("Fetched a total of %d new toots" % len(statuses))
+        print()
+        print("Added a total of %d new items" % count)
         return statuses
 
-    if append:
-        print("Get statuses (this may take a while)")
-        statuses = mastodon.account_statuses(user["id"])
-        statuses = mastodon.fetch_remaining(
-            first_page = statuses)
-        statuses.extend(data["statuses"])
-    elif data is None or not "statuses" in data or len(data["statuses"]) == 0:
-        print("Get statuses (this may take a while)")
-        statuses = mastodon.account_statuses(user["id"])
+    def keep_mentions(notifications):
+        return [x.status for x in notifications if x.type == "mention"]
+
+    if data is None or not "statuses" in data or len(data["statuses"]) == 0:
+        print("Get all statuses (this may take a while)")
+        statuses = mastodon.account_statuses(user["id"], limit=100)
         statuses = mastodon.fetch_remaining(
             first_page = statuses)
     else:
-        id = data["statuses"][0]["id"]
         print("Get new statuses")
-        statuses = fetch_up_to(mastodon.account_statuses(user["id"]), id)
-        statuses.extend(data["statuses"])
+        statuses = complete(data["statuses"], mastodon.account_statuses(user["id"], limit=100))
 
     if skip_favourites:
         print("Skipping favourites")
@@ -118,31 +124,72 @@ need to delete is this file:
             favourites = []
         else:
             favourites = data["favourites"]
-    elif append:
-        print("Get favourites (this may take a while)")
-        favourites = mastodon.favourites()
-        favourites = mastodon.fetch_remaining(
-            first_page = favourites)
-        favourites.extend(data["favourites"])
     elif data is None or not "favourites" in data or len(data["favourites"]) == 0:
         print("Get favourites (this may take a while)")
         favourites = mastodon.favourites()
         favourites = mastodon.fetch_remaining(
             first_page = favourites)
     else:
-        id = data["favourites"][0]["id"]
         print("Get new favourites")
-        favourites = fetch_up_to(mastodon.favourites(), id)
-        favourites.extend(data["favourites"])
+        favourites = complete(data["favourites"], mastodon.favourites())
+
+    if not with_mentions:
+        print("Skipping mentions")
+        if data is None or not "mentions" in data:
+            mentions = []
+        else:
+            mentions = data["mentions"]
+    elif data is None or not "mentions" in data or len(data["mentions"]) == 0:
+        print("Get notifications and look for mentions (this may take a while)")
+        notifications = mastodon.notifications(limit=100)
+        notifications = mastodon.fetch_remaining(
+            first_page = notifications)
+        mentions = keep_mentions(notifications)
+    else:
+        print("Get new notifications and look for mentions")
+        is_mention = lambda x: "type" in x and x["type"] == "mention"
+        mentions = complete(data["mentions"], mastodon.notifications(limit=100), is_mention)
+
+    if not with_followers:
+        print("Skipping followers")
+        if data is None or not "followers" in data:
+            followers = []
+        else:
+            followers = data["followers"]
+    else:
+        print("Get followers (this may take a while)")
+        followers = mastodon.account_followers(user.id, limit=100)
+        followers = mastodon.fetch_remaining(
+            first_page = followers)
+        data["followers"] = followers
+
+    if not with_following:
+        print("Skipping following")
+        if data is None or not "following" in data:
+            following = []
+        else:
+            following = data["following"]
+    else:
+        print("Get following (this may take a while)")
+        following = mastodon.account_following(user.id, limit=100)
+        following = mastodon.fetch_remaining(
+            first_page = following)
+        data["following"] = following
 
     data = {
         'account': user,
         'statuses': statuses,
-        'favourites': favourites
+        'favourites': favourites,
+        'mentions': mentions,
+        'followers': followers,
+        'following': following,
     }
 
-    print("Saving %d statuses and %d favourites" % (
+    print("Saving %d statuses, %d favourites, %d mentions, %d followers, and %d following" % (
         len(statuses),
-        len(favourites)))
+        len(favourites),
+        len(mentions),
+        len(followers),
+        len(following)))
 
     core.save(status_file, data)

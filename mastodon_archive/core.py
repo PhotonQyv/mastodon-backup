@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2017  Alex Schroeder <alex@gnu.org>
+# Copyright (C) 2017-2018  Alex Schroeder <alex@gnu.org>
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -18,6 +18,19 @@ import sys
 import os.path
 import datetime
 import json
+import glob
+import re
+
+def parse(account):
+    """
+    Parse account into username and domain.
+    """
+    try:
+        (username, domain) = account.split('@')
+        return username, domain;
+    except ValueError:
+        print("The account has to have the form username@domain", file=sys.stderr)
+        sys.exit(3)
 
 def read(args):
     """
@@ -32,7 +45,25 @@ def readwrite(args):
     read-only token. If this happens, you need to deauthorize and try
     again.
     """
-    return login(args, scopes = ['read', 'write'])
+    try:
+        # this is what we expect
+        return login(args, scopes = ['read', 'write'])
+    except Exception as e:
+        # on some instances, there's this problem with getting a
+        # bigger scope than requested, so just do it again and hope
+        # for the best... (dealing with MastodonAPIError: Granted
+        # scopes "follow read write" differ from requested scopes
+        # "read write".)
+        return login(args, scopes = ['follow', 'read', 'write'])
+
+def readwritefollow(args):
+    """
+    Login to your Mastodon account with read, write and follow permissions.
+    Note that you will get an error when your authorization token is a
+    read-only token. If this happens, you need to deauthorize and try
+    again.
+    """
+    return login(args, scopes = ['follow', 'read', 'write'])
 
 def deauthorize(args):
     """
@@ -43,13 +74,16 @@ def deauthorize(args):
     user_secret = domain + '.user.' + username + '.secret'
     if os.path.isfile(user_secret):
         os.remove(user_secret)
+    client_secret = domain + '.client.secret'
+    if os.path.isfile(client_secret):
+        os.remove(client_secret)
 
 def login(args, scopes = ['read']):
     """
     Login to your Mastodon account
     """
 
-    pace = args.pace
+    pace = hasattr(args, 'pace') and args.pace
 
     (username, domain) = args.user.split("@")
 
@@ -64,18 +98,20 @@ def login(args, scopes = ['read']):
         Mastodon.create_app(
             'mastodon-archive',
             api_base_url = url,
+            scopes = scopes,
             to_file = client_secret)
 
     if not os.path.isfile(user_secret):
 
-        print("Log in")
+        print("This app needs access to your Mastodon account.")
+
         mastodon = Mastodon(
             client_id = client_secret,
             api_base_url = url)
 
         url = mastodon.auth_request_url(
             client_id = client_secret,
-            scopes=scopes)
+            scopes = scopes)
 
         print("Visit the following URL and authorize the app:")
         print(url)
@@ -83,12 +119,36 @@ def login(args, scopes = ['read']):
         print("Then paste the access token here:")
         token = sys.stdin.readline().rstrip()
 
-        # on the very first login, --pace has no effect
-        mastodon.log_in(
-            username = username,
-            code = token,
-            to_file = user_secret,
-            scopes=scopes)
+        try:
+            # on the very first login, --pace has no effect
+            mastodon.log_in(
+                code = token,
+                to_file = user_secret,
+                scopes = scopes)
+
+        except Exception as e:
+
+            print("Sadly, that did not work. On some sites, this login mechanism")
+            print("(namely OAuth) seems to be broken. There is an alternative")
+            print("if you are willing to trust us with your password just this")
+            print("once. We need it just this once in order to get an access")
+            print("token. We won't save it. If you don't want to try this, use")
+            print("Ctrl+C to quit. If you want to try it, please provide your")
+            print("login details.")
+
+            sys.stdout.write("Email: ")
+            sys.stdout.flush()
+            email = sys.stdin.readline().rstrip()
+            sys.stdout.write("Password: ")
+            sys.stdout.flush()
+            password = sys.stdin.readline().rstrip()
+
+            # on the very first login, --pace has no effect
+            mastodon.log_in(
+                username = email,
+                password = password,
+                to_file = user_secret,
+                scopes = scopes)
 
     else:
 
@@ -144,3 +204,52 @@ def save(file_name, data):
         os.replace(file_name, file_name + '~')
     with open(file_name, mode = 'w', encoding = 'utf-8') as fp:
         data = json.dump(data, fp, indent = 2, default = date_handler)
+
+def all_accounts():
+    """
+    Return all the known user accounts in the current directory.
+    """
+    archives = glob.glob('*.user.*.json');
+    if not archives:
+        print("You need to create an archive, first", file=sys.stderr)
+        sys.exit(2)
+    else:
+        users = []
+        for archive in archives:
+            m = re.match(r"(.*)\.user\.(.*)\.json", archive)
+            if m:
+                users.append("%s@%s" % m.group(2, 1))
+        return users
+
+def keep(statuses, weeks):
+    """
+    Return all statuses newer than some weeks
+    """
+
+    delta = datetime.timedelta(weeks = weeks)
+    cutoff = datetime.datetime.today() - delta
+
+    def matches(status):
+        created = datetime.datetime.strptime(status["created_at"][0:10], "%Y-%m-%d")
+        return created >= cutoff
+
+    return list(filter(matches, statuses))
+
+def whitelist(domain, username):
+    file_name = domain + '.user.' + username + '.whitelist.txt'
+    whitelist = set()
+    if os.path.isfile(file_name):
+        with open(file_name, mode = 'r', encoding = 'utf-8') as fp:
+            for line in fp:
+                # kensanata
+                # kensanata@dice.camp
+                # Alex Schroeder <kensanata@dice.camp>
+                m = re.search(r"([a-zA-Z0-9.-]+@[a-zA-Z0-9.-]+)", line)
+                if not m:
+                    m = re.search(r"([a-zA-Z0-9.-]+)", line)
+                if m:
+                    whitelist.add(m.group(1))
+        print("%d accounts are on the whitelist" % len(whitelist))
+    else:
+        print("There is no whitelist")
+    return whitelist

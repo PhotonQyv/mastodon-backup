@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (C) 2017  Alex Schroeder <alex@gnu.org>
-# Copyright (C) 2017  Steve Ivy <steveivy@gmail.com>
+# Copyright (C) 2017–2019  Alex Schroeder <alex@gnu.org>
+# Copyright (C) 2017       Steve Ivy <steveivy@gmail.com>
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU General Public License along with
 # this program. If not, see <http://www.gnu.org/licenses/>.
 
-import sys
 import os
+import sys
 import json
+import time
 import urllib.request
 from progress.bar import Bar
 from urllib.parse import urlparse
@@ -25,6 +26,8 @@ def media(args):
     """
     Download all the media files linked to from your archive
     """
+
+    pace = hasattr(args, 'pace') and args.pace
 
     (username, domain) = args.user.split('@')
 
@@ -54,7 +57,8 @@ def media(args):
 
     errors = 0
 
-    for url in urls:
+    # start downloading the missing files from the back
+    for url in reversed(urls):
         bar.next()
         path = urlparse(url).path
         file_name = media_dir + path
@@ -62,12 +66,18 @@ def media(args):
             dir_name =  os.path.dirname(file_name)
             os.makedirs(dir_name, exist_ok = True)
             try:
-                with urllib.request.urlopen(url) as response, open(file_name, 'wb') as fp:
+                req = urllib.request.Request(
+                    url, data=None,
+                    headers={'User-Agent': 'Mastodon-Archive/1.1 '
+                             '(+https://github.com/kensanata/mastodon-backup#mastodon-archive)'})
+                with urllib.request.urlopen(req) as response, open(file_name, 'wb') as fp:
                     data = response.read()
                     fp.write(data)
             except OSError as e:
                 print("\n" + e.msg + ": " + url, file=sys.stderr)
                 errors += 1
+            if pace:
+                time.sleep(1)
 
     bar.finish()
 
