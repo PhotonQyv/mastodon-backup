@@ -44,12 +44,12 @@ body {
         -ms-text-size-adjust: none;
         text-size-adjust: none;
         -webkit-tap-highlight-color: transparent;
-        max-width: 80ex;
 }
 .column {
         background: #282c37;
         padding: 10px;
-        margin: 10px;
+        margin: auto;
+        max-width: 80ex;
 }
 h1 {
         color: #fff;
@@ -285,13 +285,14 @@ def html(args):
 
     toots_per_page = args.toots
     collection = args.collection
+    combine = args.combine
 
     (username, domain) = args.user.split('@')
 
     status_file = domain + '.user.' + username + '.json'
     media_dir = domain + '.user.' + username
     base_url = 'https://' + domain
-    data = core.load(status_file, required = True)
+    data = core.load(status_file, required=True, combine=combine)
     user = data["account"]
     statuses = data[collection]
 

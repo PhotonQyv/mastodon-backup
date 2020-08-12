@@ -19,6 +19,8 @@ import os.path
 import math
 from progress.bar import Bar
 from datetime import timedelta, datetime
+from random import shuffle
+import signal
 import html2text
 import textwrap
 from . import core
@@ -40,7 +42,7 @@ def delete(mastodon, collection, status):
     """
     if collection == 'statuses':
         if status["reblog"]:
-            mastodon.status_unreblog(status["id"])
+            mastodon.status_unreblog(status["reblog"]["id"])
         else:
             mastodon.status_delete(status["id"])
     elif collection == 'favourites':
@@ -88,22 +90,32 @@ def expire(args):
 
     statuses = list(filter(matches, data[collection]))
     n_statuses = len(statuses)
+    shuffle(statuses)
 
     if (n_statuses == 0):
         print("No " + collection + " are older than %d weeks" % args.weeks,
               file=sys.stderr)
-    elif (n_statuses > 300):
-        estimated_time = math.floor((n_statuses - 1) / 300) * 5
-        print("Considering the default rate limit of 300 requests per five minutes\n"
-              "and having {} items, this will take at least {} minutes to complete.".format(n_statuses, estimated_time))
+    elif (n_statuses > 30 and collection == 'statuses'):
+        print("Considering the default rate limit of 30 requests per 30 minutes\n"
+              "and having {} {}, this will take at least as many minutes to do.\n"
+              . format(n_statuses, collection))
+        mastodon.ratelimit_method = 'pace'
+    else:
+        mastodon.ratelimit_method = 'wait'
 
     if confirmed and n_statuses > 0:
 
         bar = Bar('Expiring', max = len(statuses))
         error = ''
 
+        def signal_handler(signal, frame):
+            print("\nYou pressed Ctrl+C! Saving data before exiting!")
+            core.save(status_file, data)
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+
         for status in statuses:
-            bar.next()
             try:
                 delete(mastodon, collection, status)
             except Exception as e:
@@ -119,6 +131,7 @@ def expire(args):
                     error = "Error: the instance name is either misspelled or offline"
                 else:
                     print(e, file=sys.stderr)
+            bar.next()
 
         bar.finish()
 

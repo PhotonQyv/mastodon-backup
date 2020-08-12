@@ -27,6 +27,7 @@ You can get the latest sources
 
 - [Installation](#installation)
 - [Making an archive](#making-an-archive)
+- [Splitting an archive](#splitting-an-archive)
 - [Downloading media files](#downloading-media-files)
 - [Generating a text file](#generating-a-text-file)
 - [Searching your archive](#searching-your-archive)
@@ -77,7 +78,7 @@ pip3 install mastodon-archive
 
 # Making an archive
 
-When using the app for the first time, you will have to authorize it:
+When using the app for the first time, you have to authorize it:
 
 ```text
 $ mastodon-archive archive kensanata@dice.camp
@@ -130,11 +131,56 @@ toots will be downloaded the next time you run the app. If you suspect
 a problem and want to make sure that everything is downloaded again,
 you need to remove this file.
 
-# Downloading media files
+# Splitting an archive
 
-By default, media you uploaded and media of statuses you added your
-favourites are not part of your archive. You can download it using a
-separate command, however.
+If you keep adding your archive, it eventually grows very large. When
+it reaches hundreds of megabytes, consider *splitting* it.
+
+```
+$ ls -lh *.json
+-rw-r--r-- 1 alex alex 120M Apr 14 21:50 octodon.social.user.kensanata.json
+```
+
+You can provide an `--older-than` option to specify the number of
+weeks you want to keep. The default is four weeks.
+
+If you don't provide the `--confirmed` option, this is a dry run.
+
+```
+$ mastodon-archive split --older-than=10 kensanata@octodon.social
+This is a dry run and nothing will be moved.
+Instead, we'll just list what would have happened.
+Use --confirmed to actually do it.
+Loading existing archive
+Older than 2019-02-03 22:11:48.253408
+statuses: 10623
+favourites: 11233
+mentions: 10773
+Would have saved this to octodon.social.user.kensanata.0.json
+```
+
+When you do the split, the files are saved.
+
+```
+$ mastodon-archive split --older-than=10 --confirmed kensanata@octodon.social
+Loading existing archive
+Older than 2019-02-03 22:11:59.668432
+statuses: 10623
+favourites: 11233
+mentions: 10773
+Saving octodon.social.user.kensanata.json
+Saving octodon.social.user.kensanata.0.json
+```
+
+Verify the result:
+
+```
+$ ls -lh *.json
+-rw-r--r-- 1 alex alex 107M Apr 14 22:12 octodon.social.user.kensanata.0.json
+-rw-r--r-- 1 alex alex  13M Apr 14 22:12 octodon.social.user.kensanata.json
+```
+
+# Downloading media files
 
 Assuming you already made an archive of your toots:
 
@@ -143,6 +189,13 @@ $ mastodon-archive media kensanata@dice.camp
 44 urls in your archive (half of them are previews)
 34 files already exist
 Downloading |################################| 10/10
+```
+By default, media you uploaded and media of statuses you added your
+favourites are not part of your archive. To download these too,
+specify the favourites collection:
+
+```text
+$ mastodon-archive media --collection favourites kensanata@dice.camp
 ```
 
 You will end up with a new directory, `dice.camp.user.kensanata`. It
@@ -348,12 +401,27 @@ blog](https://alexschroeder.ch/wiki/2017-04-27_Record_Keeping).
 
 **Alternatives**: Check out [forget](https://forget.codl.fr/about/)
 which is a web app that only expires your toots without archiving
-theme.
+them.
 [MastoPurgee](https://github.com/ThomasLeister/mastopurge/blob/master/README.md)
 does the same thing but it's a stand-alone binary. Depending on your
 needs, these might be good enough.
 
 Anyway, back to *Mastodon Archive*. 🙂
+
+Sadly, I have some bad news for you: this has been rate limited to
+[30 statuses per 30 minutes](https://mastodon.social/@Gargron/101588449409740014)!
+😭
+
+No, really! See the [merge request](https://github.com/tootsuite/mastodon/pull/10042).
+This is terrible. Expiry basically only works if you run it every time
+you have posted 30 statuses or so, in the long run. If you don't, be
+prepared for a *long* wait! 😴
+
+In order to not go crazy, the code catches an interrupt (such as you
+pressing `Ctrl-C`) and saves the data even though it hasn't finished
+expiring your statuses.
+
+Anyway, enough complaining. How do you do it?
 
 You can expire your toots using the `expire` command and providing the
 `--older-than` option. This option specifies the number of weeks to

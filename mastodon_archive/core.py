@@ -20,6 +20,7 @@ import datetime
 import json
 import glob
 import re
+import shutil
 
 def parse(account):
     """
@@ -67,51 +68,61 @@ def readwritefollow(args):
 
 def deauthorize(args):
     """
-    Deauthorize the account. We do this by deleting the file
-    containing the authorization token.
+    Deauthorize the account.
     """
-    (username, domain) = args.user.split("@")
-    user_secret = domain + '.user.' + username + '.secret'
-    if os.path.isfile(user_secret):
-        os.remove(user_secret)
-    client_secret = domain + '.client.secret'
-    if os.path.isfile(client_secret):
-        os.remove(client_secret)
+    app = App(args.user)
+    app.deauthorize()
 
-def login(args, scopes = ['read']):
+def login(args, scopes=('read',)):
     """
     Login to your Mastodon account
     """
-
     pace = hasattr(args, 'pace') and args.pace
+    app = App(args.user, scopes)
+    return app.login(pace)
 
-    (username, domain) = args.user.split("@")
 
-    url = 'https://' + domain
-    client_secret = domain + '.client.secret'
-    user_secret = domain + '.user.' + username + '.secret'
-    mastodon = None
+class App:
+    """
+    Client application to register, authorize and login with your Mastodon
+    account.
+    """
 
-    if not os.path.isfile(client_secret):
+    def __init__(self, user, scopes=('read',), name="mastodon-archive"):
 
+        self.username, self.domain = user.split("@")
+        self.url = "https://" + self.domain
+        self.name = name
+        self.scopes = scopes
+        self.client_secret = self.domain + ".client.secret"
+        self.user_secret = self.domain + ".user." + self.username + ".secret"
+
+    def register(self):
+        """
+        Register application and saves client secret.
+        """
         print("Registering app")
         Mastodon.create_app(
-            'mastodon-archive',
-            api_base_url = url,
-            scopes = scopes,
-            to_file = client_secret)
+            self.name,
+            api_base_url=self.url,
+            scopes=self.scopes,
+            to_file=self.client_secret
+        )
 
-    if not os.path.isfile(user_secret):
-
+    def authorize(self):
+        """
+        Tries to authorize via OAuth API, and save access token. If it fails
+        fallsback to username and password.
+        """
+        url = self.url
+        client_secret = self.client_secret
+        user_secret = self.user_secret
+        scopes = self.scopes
         print("This app needs access to your Mastodon account.")
 
-        mastodon = Mastodon(
-            client_id = client_secret,
-            api_base_url = url)
+        mastodon = Mastodon(client_id=client_secret, api_base_url=url)
 
-        url = mastodon.auth_request_url(
-            client_id = client_secret,
-            scopes = scopes)
+        url = mastodon.auth_request_url(client_id=client_secret, scopes=scopes)
 
         print("Visit the following URL and authorize the app:")
         print(url)
@@ -121,12 +132,9 @@ def login(args, scopes = ['read']):
 
         try:
             # on the very first login, --pace has no effect
-            mastodon.log_in(
-                code = token,
-                to_file = user_secret,
-                scopes = scopes)
+            mastodon.log_in(code=token, to_file=user_secret, scopes=scopes)
 
-        except Exception as e:
+        except Exception:
 
             print("Sadly, that did not work. On some sites, this login mechanism")
             print("(namely OAuth) seems to be broken. There is an alternative")
@@ -145,36 +153,66 @@ def login(args, scopes = ['read']):
 
             # on the very first login, --pace has no effect
             mastodon.log_in(
-                username = email,
-                password = password,
-                to_file = user_secret,
-                scopes = scopes)
+                username=email,
+                password=password,
+                to_file=user_secret,
+                scopes=scopes
+            )
 
-    else:
+        return mastodon
 
-        if pace:
+    def deauthorize(self):
+        """
+        Deauthorize by deleting the file containing the authorization token.
+        """
+        user_secret = self.user_secret
+        client_secret = self.client_secret
+        if os.path.isfile(user_secret):
+            os.remove(user_secret)
+        if os.path.isfile(client_secret):
+            os.remove(client_secret)
 
-            # in case the user kept running into a General API problem
-            mastodon = Mastodon(
-                client_id = client_secret,
-                access_token = user_secret,
-                api_base_url = url,
-                ratelimit_method='pace',
-                ratelimit_pacefactor=0.9,
-                request_timeout=300)
+    def login(self, pace=False):
+        """
+        Register app, authorize and return an instance of ``Mastodon``
+        """
+        url = self.url
+        client_secret = self.client_secret
+        user_secret = self.user_secret
+
+        if not os.path.isfile(client_secret):
+            self.register()
+
+        if not os.path.isfile(user_secret):
+            mastodon = self.authorize()
 
         else:
 
-            # the defaults are ratelimit_method='wait',
-            # ratelimit_pacefactor=1.1, request_timeout=300
-            mastodon = Mastodon(
-                client_id = client_secret,
-                access_token = user_secret,
-                api_base_url = url)
+            if pace:
 
-    return mastodon
+                # in case the user kept running into a General API problem
+                mastodon = Mastodon(
+                    client_id=client_secret,
+                    access_token=user_secret,
+                    api_base_url=url,
+                    ratelimit_method="pace",
+                    ratelimit_pacefactor=0.9,
+                    request_timeout=300
+                )
 
-def load(file_name, required = False, quiet = False):
+            else:
+
+                # the defaults are ratelimit_method='wait',
+                # ratelimit_pacefactor=1.1, request_timeout=300
+                mastodon = Mastodon(
+                    client_id=client_secret,
+                    access_token=user_secret,
+                    api_base_url=url
+                )
+
+        return mastodon
+
+def load(file_name, required=False, quiet=False, combine=False):
     """
     Load the JSON data from a file.
     """
@@ -184,10 +222,33 @@ def load(file_name, required = False, quiet = False):
         sys.exit(2)
 
     if os.path.isfile(file_name) and os.path.getsize(file_name) > 0:
-        if not quiet:
-            print("Loading existing archive")
-        with open(file_name, mode = 'r', encoding = 'utf-8') as fp:
-            return json.load(fp)
+
+        def _json_load(fname):
+            if not quiet:
+                print("Loading existing archive:", fname)
+
+            with open(fname, mode='r', encoding='utf-8') as fp:
+                return json.load(fp)
+
+        data = _json_load(file_name)
+        if combine:
+            # Load latest archive first to keep chronological order
+            archives = list(
+                reversed(glob.glob(file_name.replace(".json", ".*.json")))
+            )
+
+            if required and not quiet and not archives:
+                print("Warning: No split archives to combine", file=sys.stderr)
+
+            # Merge dictionaries loaded from JSON archives
+            for archive in archives:
+                archived_data = _json_load(archive)
+
+                for collection in ["statuses", "favourites", "mentions"]:
+                    data[collection].extend(archived_data[collection])
+
+        return data
+
     return None
 
 def save(file_name, data):
@@ -201,7 +262,21 @@ def save(file_name, data):
         else None)
 
     if os.path.isfile(file_name):
-        os.replace(file_name, file_name + '~')
+        backup_file = file_name + '~'
+        print("Backing up", file_name, "to", backup_file)
+        if os.path.isfile(backup_file):
+            ans = ""
+            while ans.lower() not in ("y", "n", "yes", "no"):
+                ans = input(
+                    "Backup: {} exists! Overwrite (yes/no)? ".format(backup_file)
+                )
+
+            if ans.lower()[0] == "y":
+                shutil.copy2(file_name, backup_file)
+            else:
+                print("Exiting to avoid overwriting backup.", file=sys.stderr)
+                sys.exit(0)
+
     with open(file_name, mode = 'w', encoding = 'utf-8') as fp:
         data = json.dump(data, fp, indent = 2, default = date_handler)
 

@@ -19,6 +19,8 @@ import sys
 import json
 import time
 import urllib.request
+from urllib.error import HTTPError
+from urllib.error import URLError
 from progress.bar import Bar
 from urllib.parse import urlparse
 
@@ -33,25 +35,22 @@ def media(args):
 
     status_file = domain + '.user.' + username + '.json'
     media_dir = domain + '.user.' + username
-
-    if not os.path.isfile(status_file):
-
-        print("You need to create an archive, first", file=sys.stderr)
-        sys.exit(2)
-
-    with open(status_file, mode = 'r', encoding = 'utf-8') as fp:
-        data = json.load(fp)
+    data = core.load(status_file, required=True, quiet=True, combine=args.combine)
 
     urls = []
-    for status in data["statuses"]:
+    preview_urls_count=0
+    for status in data[args.collection]:
         attachments = status["media_attachments"]
         if status["reblog"] is not None:
             attachments = status["reblog"]["media_attachments"]
         for attachment in attachments:
-                for url in [attachment["preview_url"], attachment["url"]]:
-                        urls.append(url)
+                if attachment["preview_url"]:
+                        urls.append(attachment["preview_url"])
+                        preview_urls_count += 1
+                if attachment["url"]:
+                        urls.append(attachment["url"])
 
-    print("%d urls in your backup (half of them are previews)" % len(urls))
+    print("%d urls in your backup (%d are previews)" % (len(urls), preview_urls_count))
 
     bar = Bar('Downloading', max = len(urls))
 
@@ -68,11 +67,16 @@ def media(args):
             try:
                 req = urllib.request.Request(
                     url, data=None,
-                    headers={'User-Agent': 'Mastodon-Archive/1.1 '
+                    headers={'User-Agent': 'Mastodon-Archive/1.3 '
                              '(+https://github.com/kensanata/mastodon-backup#mastodon-archive)'})
-                with urllib.request.urlopen(req) as response, open(file_name, 'wb') as fp:
+                try:
+                  with urllib.request.urlopen(req) as response, open(file_name, 'wb') as fp:
                     data = response.read()
                     fp.write(data)
+                except HTTPError as he:
+                  print("\nFailed to open " + url + " during a media request.")
+                except URLError as ue:
+                  print("\nFailed to open " + url + " during a media request.")
             except OSError as e:
                 print("\n" + e.msg + ": " + url, file=sys.stderr)
                 errors += 1

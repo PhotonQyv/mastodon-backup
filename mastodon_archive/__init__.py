@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (C) 2017-2018  Alex Schroeder <alex@gnu.org>
+# Copyright (C) 2017-2019  Alex Schroeder <alex@gnu.org>
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -15,10 +15,12 @@
 
 import argparse
 from . import archive
+from . import replies
 from . import text
 from . import context
 from . import html
 from . import media
+from . import split
 from . import expire
 from . import report
 from . import followers
@@ -26,6 +28,7 @@ from . import following
 from . import whitelist
 from . import mutuals
 from . import login
+from . import fix
 
 def main():
     parser = argparse.ArgumentParser(
@@ -57,6 +60,10 @@ def main():
                                 action='store_const',
                                 const=True, default=False,
                                 help='download following (the people you follow)')
+    parser_content.add_argument("--no-stopping", dest='stopping',
+                                action='store_const',
+                                const=False, default=True,
+                                help='do not stop after seeing 10 duplicates')
     parser_content.add_argument("--pace", dest='pace', action='store_const',
                                 const=True, default=False,
                                 help='avoid timeouts and pace requests')
@@ -66,10 +73,28 @@ def main():
 
 
     parser_content = subparsers.add_parser(
+        name='replies',
+        help='archive missing toots you replied to')
+    parser_content.add_argument("--pace", dest='pace', action='store_const',
+                                const=True, default=False,
+                                help='avoid timeouts and pace requests')
+    parser_content.add_argument("user",
+                                help='your account, e.g. kensanata@octogon.social')
+    parser_content.set_defaults(command=replies.replies)
+
+
+    parser_content = subparsers.add_parser(
         name='media',
         help='download media referred to by toots in your archive')
     parser_content.add_argument("user",
                                 help='your account, e.g. kensanata@octogon.social')
+    parser_content.add_argument("--combine",
+                                action="store_true",
+                                help="combine archives in case they are split")
+    parser_content.add_argument("--collection", dest='collection',
+                                choices=['statuses', 'favourites'],
+                                default='statuses',
+                                help='export statuses or favourites')
     parser_content.add_argument("--pace", dest='pace', action='store_const',
                                 const=True, default=False,
                                 help='avoid timeouts and pace requests')
@@ -82,8 +107,11 @@ def main():
     parser_content.add_argument("--reverse", dest='reverse', action='store_const',
                                 const=True, default=False,
                                 help='reverse output, oldest first')
+    parser_content.add_argument("--combine",
+                                action="store_true",
+                                help="combine archives in case they are split")
     parser_content.add_argument("--collection", dest='collection',
-                                choices=['statuses', 'favourites', 'mentions'],
+                                choices=['statuses', 'favourites', 'mentions', 'all'],
                                 default='statuses',
                                 help='export statuses, favourites, or mentions')
     parser_content.add_argument("user",
@@ -106,6 +134,9 @@ def main():
     parser_content = subparsers.add_parser(
         name='html',
         help='export toots and media in the archive as static HTML')
+    parser_content.add_argument("--combine",
+                                action="store_true",
+                                help="combine archives in case they are split")
     parser_content.add_argument("--collection", dest='collection',
                                 choices=['statuses', 'favourites'],
                                 default='statuses',
@@ -116,6 +147,19 @@ def main():
     parser_content.add_argument("user",
                                 help='your account, e.g. kensanata@octogon.social')
     parser_content.set_defaults(command=html.html)
+
+    parser_content = subparsers.add_parser(
+        name='split',
+        help='split an archive into two')
+    parser_content.add_argument("--older-than", dest='weeks',
+                                metavar='N', type=float, default=4,
+                                help='split anything older than this many weeks')
+    parser_content.add_argument("--confirmed", dest='confirmed',
+                                action='store_const', const=True, default=False,
+                                help='save the data after splitting')
+    parser_content.add_argument("user",
+                                help='your account, e.g. kensanata@octogon.social')
+    parser_content.set_defaults(command=split.split)
 
 
     parser_content = subparsers.add_parser(
@@ -159,6 +203,9 @@ def main():
     parser_content = subparsers.add_parser(
         name='report',
         help='''report some numbers about your toots and favourites''')
+    parser_content.add_argument("--combine",
+                                action="store_true",
+                                help="combine archives in case they are split")
     parser_content.add_argument("--all", dest='all', action='store_const',
                                 const=True, default=False,
                                 help='consider all toots (ignore --newer-than)')
@@ -237,6 +284,18 @@ def main():
                                 help='your account, e.g. kensanata@octogon.social')
     parser_content.set_defaults(command=whitelist.print_whitelist)
 
+    parser_content = subparsers.add_parser(
+        name='fix-boosts',
+        help='''mark all the boosts as not deleted (triggering their deletion)''')
+    parser_content.add_argument("--combine",
+                                action="store_true",
+                                help="combine archives in case they are split")
+    parser_content.add_argument("user",
+                                help='your account, e.g. kensanata@octogon.social')
+    parser_content.add_argument("--confirmed", dest='confirmed',
+                                action='store_const', const=True, default=False,
+                                help='perform the change on the archive')
+    parser_content.set_defaults(command=fix.fix_boosts)
 
     parser_content = subparsers.add_parser(
         name='login',

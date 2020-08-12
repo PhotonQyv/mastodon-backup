@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU General Public License along with
 # this program. If not, see <http://www.gnu.org/licenses/>.
 
+import itertools
 import sys
 import os.path
 import html2text
@@ -28,11 +29,12 @@ def text(args):
     collection = args.collection
     reverse = args.reverse
     patterns = args.pattern
+    combine = args.combine
 
     (username, domain) = core.parse(args.user)
 
     status_file = domain + '.user.' + username + '.json'
-    data = core.load(status_file, required = True, quiet = True)
+    data = core.load(status_file, required=True, quiet=True, combine=combine)
 
     def matches(status):
         if status["reblog"] is not None:
@@ -43,20 +45,24 @@ def text(args):
                       status["account"]["display_name"],
                       status["account"]["username"],
                       status["created_at"]]:
-                if re.search(pattern,s) is not None:
+                if re.search(pattern, s, flags=re.IGNORECASE) is not None:
                     found = True
                     continue
             if not found:
                 return False
         return True
 
-    statuses = data[collection]
+    if collection == "all":
+        statuses = itertools.chain.from_iterable(
+            data[collection] for collection in ["statuses", "favourites", "mentions"]
+        )
+    else:
+        statuses = data[collection]
 
     if len(patterns) > 0:
         statuses = list(filter(matches, statuses))
 
-    if reverse:
-        statuses = reversed(statuses)
+    statuses = sorted(statuses, reverse=reverse, key=lambda status: status["created_at"])
 
     for status in statuses:
         str = '';
